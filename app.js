@@ -1,53 +1,84 @@
 
+    var data;
+
 //AJAX TEST
 
-function postAjax(url, data, success) {
-
-    var xhr = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject("Microsoft.XMLHTTP");
-    xhr.open('POST', url);
-    xhr.onreadystatechange = function() {
-        if (xhr.readyState>3 && xhr.status==200) { success(xhr.responseText); }
-    };
-    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.send(JSON.stringify(data));
-    return xhr;
+function postAjax(url, data) {
+    return new Promise(function(resolve, reject) {
+        var xhr = window.XMLHttpRequest ? new XMLHttpRequest() : new ActiveXObject("Microsoft.XMLHTTP");
+        xhr.open('POST', url);
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState>3 && xhr.status==200) { resolve(xhr.responseText); }
+        };
+        xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.send(JSON.stringify(data));
+        return xhr;
+     })
 }
 
-var json = {
-    cos:"aaa"
+var urlExp = 'https://api.mlab.com/api/1/databases/budget-app/collections/exp?apiKey=cxssGYdYHxJPJNWo9dR87IVu9OisXJ3t';
+var urlInc = 'https://api.mlab.com/api/1/databases/budget-app/collections/inc?apiKey=cxssGYdYHxJPJNWo9dR87IVu9OisXJ3t';
+
+
+function getAjax(url) {
+    return new Promise(function(resolve, reject) {
+        var request = new XMLHttpRequest();
+        request.open('GET', url, true);
+
+        request.onload = function() {
+            if (request.status >= 200 && request.status < 400) {
+                // Success!
+                resolve(JSON.parse(request.responseText));
+              
+            } else {
+                // We reached our target server, but it returned an error
+                console.log('Error')
+            }
+        };
+
+        request.onerror = function() {
+            reject(request.statusText);
+        };
+
+        request.send();
+
+        })
+    
+
 }
-
-
-// example request
-postAjax(url, json, function(data){ console.log(data); });
-
-
 
 //----------------BUDGET CONTROLLER------------------------
 let budgetController = (function() {
 
-    let Expenses = function(id, description, value) {
-        this.id = id;
+    let Expenses = function(description, value) {
         this.description = description;
         this.value = value;
     }
 
-    let Incomes = function(id, description, value) {
-        this.id = id;
+    let Incomes = function(description, value) {
         this.description = description;
         this.value = value;
     }
 
-    var data = {
-        allItems: {
-            expenses: [],
-            incomes: []
-        },
-        totals: {
-            expenses: 0,
-            incomes: 0
-        }
+
+    return {
+        addItem: function(type, desc, val) {
+            let newItem;
+
+            if(type === 'exp') {
+                newItem = new Expenses(desc, val)
+                postAjax(urlExp, newItem).then(function() {
+                    location.reload()
+                })
+            } else if (type === 'inc') {
+                newItem = new Incomes(desc, val)
+                postAjax(urlInc, newItem).then(function() {
+                    location.reload();
+                })
+            }
+            return newItem;
+        }  
     }
 
 })();
@@ -60,7 +91,9 @@ let UIController = (function() {
         type: '.add_type',
         description: '.add_description',
         value: '.add_value',
-        addBtn: '.add_btn'
+        addBtn: '.add_btn',
+        incomeContainer: '.income_list',
+        expensesContainer: '.expenses_list'
     }
 
     return {
@@ -71,6 +104,37 @@ let UIController = (function() {
                 value: document.querySelector(DOMstrings.value).value
             }
         },
+        getItemsList: function() {
+
+           getAjax(urlExp).then(function(expData) {
+                let element, html, newHtml;
+                element = DOMstrings.expensesContainer;
+                html = '<div class="item clearfix exp" id="expense-%id%"><div class="item_description">%description%</div><div class="right clearfix"><div class="item_value">%value%</div><div class="item_percentage">%percentage%</div><div class="item_delete"><button class="item_delete--btn"><i class="ion-ios-close-outline"></i></button></div></div></div>';
+               
+
+                expData.map(function(expObject) {
+                            newHtml = html.replace('%id%', expObject._id.$oid);
+                            newHtml = newHtml.replace('%description%', expObject.description);
+                            newHtml = newHtml.replace('%value%', expObject.value);
+                            document.querySelector(element).insertAdjacentHTML('beforeend', newHtml);
+                    })
+                });
+
+ 
+            getAjax(urlInc).then(function(incData) {
+                let element, html, newHtml;
+                element = DOMstrings.incomeContainer;
+                html = '<div class="item clearfix inc" id="income-%id%"><div class="item_description">%description%</div><div class="right clearfix"><div class="item_value">%value%</div><div class="item_delete"><button class="item_delete--btn"><i class="ion-ios-close-outline"></i></button></div></div></div>';
+
+                incData.map(function(incObject) {
+                    newHtml = html.replace('%id%', incObject._id.$oid);
+                    newHtml = newHtml.replace('%description%', incObject.description);
+                    newHtml = newHtml.replace('%value%', incObject.value);
+                    document.querySelector(element).insertAdjacentHTML('beforeend', newHtml);
+          
+                    })
+                })      
+        },    
         DOMstrings: DOMstrings
     }
 })();
@@ -96,10 +160,10 @@ let controller = (function(budgetCtrl, UICtrl) {
         // 1. Get the input fielld - done
         let input = UICtrl.getInput();
 
-        // 2. Put the item to budget
+        // 2. Put the item to budget database
+        budgetCtrl.addItem(input.type, input.description, input.value);
 
-        // 3. Put the item to UI
-
+        
         // 4. Calculate the budget
 
         // 5. Display budget UI
@@ -110,7 +174,9 @@ let controller = (function(budgetCtrl, UICtrl) {
 
     return {
         init: function() {
+            UICtrl.getItemsList();
             setupEventListeners();
+            
         }
     }
 
